@@ -7,6 +7,7 @@
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" rel="stylesheet">
 
   <style>
     body { background:#f6f7f9; }
@@ -117,11 +118,11 @@
         <div class="row g-2">
           <div class="col-6">
             <label class="form-label">Ingreso</label>
-            <input id="resDesde" class="form-control" type="date">
+            <input id="resDesde" class="form-control" type="text" inputmode="numeric" placeholder="dd/mm/aaaa">
           </div>
           <div class="col-6">
             <label class="form-label">Salida</label>
-            <input id="resHasta" class="form-control" type="date">
+            <input id="resHasta" class="form-control" type="text" inputmode="numeric" placeholder="dd/mm/aaaa">
           </div>
           <div class="form-text">Salida es día de retiro (no incluye noche). Rango [ingreso, salida).</div>
         </div>
@@ -254,37 +255,71 @@
     return d.toISOString().slice(0,10);
   }
 
-  // ====== NUEVO: colores por estado ======
+
+  function addDaysISO(isoDate, days){
+    const d = new Date(isoDate + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0,10);
+  }
+
+  // Colores por estado
   function colorByEstado(estado){
-    // Verde confirmada, Azul en_curso
-    // Extras: gris finalizada, rojo cancelada
     switch(String(estado || '').toLowerCase()){
-      case 'confirmada': return { backgroundColor:'#198754', borderColor:'#198754', textColor:'#ffffff' }; // bootstrap success
-      case 'en_curso':   return { backgroundColor:'#0d6efd', borderColor:'#0d6efd', textColor:'#ffffff' }; // bootstrap primary
-      case 'finalizada': return { backgroundColor:'#6c757d', borderColor:'#6c757d', textColor:'#ffffff' }; // secondary
-      case 'cancelada':  return { backgroundColor:'#dc3545', borderColor:'#dc3545', textColor:'#ffffff' }; // danger
-      default:           return { backgroundColor:'#212529', borderColor:'#212529', textColor:'#ffffff' };
+      case 'confirmada': return { bg:'#198754', border:'#198754', text:'#ffffff' }; // verde
+      case 'en_curso':   return { bg:'#0d6efd', border:'#0d6efd', text:'#ffffff' }; // azul
+      case 'finalizada': return { bg:'#6c757d', border:'#6c757d', text:'#ffffff' }; // gris
+      case 'cancelada':  return { bg:'#dc3545', border:'#dc3545', text:'#ffffff' }; // rojo
+      default:           return { bg:'#212529', border:'#212529', text:'#ffffff' };
     }
   }
 
-  // ====== NUEVO: auto-actualizar estado según fechas ======
+  // Auto-actualiza estados según fecha (cliente)
   async function autoUpdateEstados(){
     const hoy = todayISO();
     const nowIso = new Date().toISOString();
 
-    // 1) confirmada -> en_curso si hoy está dentro [desde, hasta)
-    //    fecha_desde <= hoy AND fecha_hasta > hoy
+    // confirmada -> en_curso (si hoy está dentro del rango)
     await supabase.from('reservas')
       .update({ estado: 'en_curso', updated_at: nowIso })
       .eq('estado', 'confirmada')
       .lte('fecha_desde', hoy)
       .gt('fecha_hasta', hoy);
 
-    // 2) confirmada/en_curso -> finalizada si hoy >= fecha_hasta
+    // confirmada/en_curso -> finalizada (si ya pasó la fecha de salida)
     await supabase.from('reservas')
       .update({ estado: 'finalizada', updated_at: nowIso })
-      .in('estado', ['confirmada', 'en_curso'])
+      .in('estado', ['confirmada','en_curso'])
       .lte('fecha_hasta', hoy);
+  }
+
+  // Date pickers dd/mm/aaaa (Flatpickr)
+  let fpDesde = null;
+  let fpHasta = null;
+
+  function initDatePickers(){
+    if (fpDesde && fpHasta) return;
+
+    const fp = window.flatpickr;
+    if (!fp) return;
+
+    // Configura español
+    if (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.es) {
+      fp.localize(window.flatpickr.l10ns.es);
+    }
+
+    fpDesde = fp("#resDesde", {
+      dateFormat: "Y-m-d",
+      altInput: true,
+      altFormat: "d/m/Y",
+      allowInput: true
+    });
+
+    fpHasta = fp("#resHasta", {
+      dateFormat: "Y-m-d",
+      altInput: true,
+      altFormat: "d/m/Y",
+      allowInput: true
+    });
   }
 
   // Calendar
@@ -322,21 +357,15 @@
     userLabel.textContent = session.user.email;
 
     await loadCabanas();
-
-    // ====== NUEVO: al entrar, actualiza estados por fecha y refresca calendario ======
     await autoUpdateEstados();
-
     initCalendar();
 
-    // ====== NUEVO: cada 10 min ajusta estados automáticamente ======
     if (!window.__estadoTimer){
       window.__estadoTimer = setInterval(async () => {
         await autoUpdateEstados();
         if (calendar) calendar.refetchEvents();
       }, 10 * 60 * 1000);
     }
-
-    if (calendar) calendar.refetchEvents();
   }
 
   // LOGIN
@@ -443,10 +472,20 @@
   function openReservaModal(r) {
     hide(document.getElementById('reservaMsg'));
 
+    initDatePickers();
+
     document.getElementById('reservaId').value = r?.id ?? "";
     document.getElementById('resCabana').value = r?.cabana_id ?? (cabanaFilter.value || document.getElementById('resCabana').value);
-    document.getElementById('resDesde').value = r?.fecha_desde ?? todayISO();
-    document.getElementById('resHasta').value = r?.fecha_hasta ?? tomorrowISO();
+    const desde = r?.fecha_desde ?? todayISO();
+    const hasta = r?.fecha_hasta ?? tomorrowISO();
+
+    if (fpDesde && fpHasta) {
+      fpDesde.setDate(desde, true);
+      fpHasta.setDate(hasta, true);
+    } else {
+      document.getElementById('resDesde').value = desde;
+      document.getElementById('resHasta').value = hasta;
+    }
     document.getElementById('resHuesped').value = r?.huesped_nombre ?? "";
     document.getElementById('resTel').value = r?.huesped_telefono ?? "";
     document.getElementById('resPers').value = r?.personas ?? 1;
@@ -480,29 +519,24 @@
     if (!payload.fecha_desde || !payload.fecha_hasta) return alertMsg(msg, "Fechas requeridas.");
     if (payload.fecha_hasta <= payload.fecha_desde) return alertMsg(msg, "La salida debe ser mayor que el ingreso.");
 
-    // Validación de solape (client-side)
+    // Validación de solape (client-side) + igual queda protegido por RLS (solo admins)
     const conflict = await hasConflict(payload.cabana_id, payload.fecha_desde, payload.fecha_hasta, id ? Number(id) : 0);
     if (conflict) return alertMsg(msg, "Conflicto: ya existe una reserva en esas fechas para esa cabaña.");
 
     let resp;
-    const nowIso = new Date().toISOString();
-
     if (id) {
       resp = await supabase.from('reservas')
-        .update({ ...payload, updated_at: nowIso })
+        .update({ ...payload, updated_at: new Date().toISOString() })
         .eq('id', Number(id));
     } else {
       resp = await supabase.from('reservas')
-        .insert({ ...payload, updated_at: nowIso });
+        .insert({ ...payload });
     }
 
     if (resp.error) return alertMsg(msg, resp.error.message);
 
     modalReserva.hide();
-
-    // Al guardar, por si hoy calza, ajusta estados (ej: confirmada -> en_curso)
     await autoUpdateEstados();
-
     if (calendar) calendar.refetchEvents();
   });
 
@@ -517,10 +551,12 @@
 
     if (resp.error) return alert(resp.error.message);
     modalReserva.hide();
+    await autoUpdateEstados();
     if (calendar) calendar.refetchEvents();
   });
 
   async function hasConflict(cabanaId, desde, hasta, excludeId = 0) {
+    // Traemos reservas que intersectan, excluyendo canceladas
     // Intersección: fecha_desde < hasta AND fecha_hasta > desde
     let q = supabase.from('reservas')
       .select('id')
@@ -533,7 +569,7 @@
     if (excludeId) q = q.neq('id', excludeId);
 
     const { data, error } = await q;
-    if (error) return false;
+    if (error) return false; // si falla, no bloqueamos (pero normalmente no fallará)
     return (data && data.length > 0);
   }
 
@@ -553,6 +589,29 @@
         center: 'title',
         right: window.innerWidth < 768 ? 'listWeek,dayGridMonth' : 'dayGridMonth,timeGridWeek,listWeek'
       },
+      selectable: true,
+      selectMirror: true,
+      select: (info) => {
+        // Selección de rango (arrastra en desktop; en móvil suele ser tap + drag)
+        openReservaModal({
+          cabana_id: cabanaFilter.value ? Number(cabanaFilter.value) : undefined,
+          fecha_desde: info.startStr.slice(0,10),
+          fecha_hasta: info.endStr.slice(0,10),
+          estado: 'confirmada',
+          personas: 1
+        });
+      },
+      dateClick: (info) => {
+        // Click en un día: crea 1 noche por defecto (desde ese día hasta el siguiente)
+        openReservaModal({
+          cabana_id: cabanaFilter.value ? Number(cabanaFilter.value) : undefined,
+          fecha_desde: info.dateStr,
+          fecha_hasta: addDaysISO(info.dateStr, 1),
+          estado: 'confirmada',
+          personas: 1
+        });
+      },
+
       events: async (fetchInfo, success, failure) => {
         try {
           const cabanaId = cabanaFilter.value ? Number(cabanaFilter.value) : null;
@@ -569,19 +628,18 @@
           if (error) throw error;
 
           const events = (data || []).map(r => {
-            const colors = colorByEstado(r.estado);
+            const c = colorByEstado(r.estado);
             return {
               title: `${r.cabanas?.nombre ?? 'Cabaña'} - ${r.huesped_nombre}`,
               start: r.fecha_desde,
               end: r.fecha_hasta,
               allDay: true,
-              backgroundColor: colors.backgroundColor,
-              borderColor: colors.borderColor,
-              textColor: colors.textColor,
-              extendedProps: { reservaId: r.id }
+              backgroundColor: c.bg,
+              borderColor: c.border,
+              textColor: c.text,
+              extendedProps: { reservaId: r.id, estado: r.estado }
             };
           });
-
           success(events);
         } catch (e) {
           failure(e);
