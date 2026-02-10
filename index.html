@@ -124,6 +124,17 @@
             <label class="form-label">Salida</label>
             <input id="resHasta" class="form-control" type="text" inputmode="numeric" placeholder="dd/mm/aaaa">
           </div>
+          <div class="row g-2 mt-1">
+            <div class="col-6">
+              <label class="form-label">Hora ingreso</label>
+              <input id="resHoraIngreso" class="form-control" type="time" value="15:00">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Hora salida</label>
+              <input id="resHoraSalida" class="form-control" type="time" value="11:00">
+            </div>
+          </div>
+          <div class="form-text">Ej: ingreso 15:00, salida 11:00.</div>
           <div class="form-text">Salida es día de retiro (no incluye noche). Rango [ingreso, salida).</div>
         </div>
 
@@ -275,21 +286,46 @@
 
   // Auto-actualiza estados según fecha (cliente)
   async function autoUpdateEstados(){
-    const hoy = todayISO();
-    const nowIso = new Date().toISOString();
+    // Ahora con horas (hora_ingreso / hora_salida)
+    // Regla:
+    // - en_curso si now >= (fecha_desde + hora_ingreso) y now < (fecha_hasta + hora_salida)
+    // - finalizada si now >= (fecha_hasta + hora_salida)
+    const now = new Date();
+    const nowIso = now.toISOString();
 
-    // confirmada -> en_curso (si hoy está dentro del rango)
-    await supabase.from('reservas')
-      .update({ estado: 'en_curso', updated_at: nowIso })
-      .eq('estado', 'confirmada')
-      .lte('fecha_desde', hoy)
-      .gt('fecha_hasta', hoy);
+    const { data: rows, error } = await supabase.from('reservas')
+      .select('id,estado,fecha_desde,fecha_hasta,hora_ingreso,hora_salida')
+      .in('estado', ['confirmada','en_curso']);
 
-    // confirmada/en_curso -> finalizada (si ya pasó la fecha de salida)
-    await supabase.from('reservas')
-      .update({ estado: 'finalizada', updated_at: nowIso })
-      .in('estado', ['confirmada','en_curso'])
-      .lte('fecha_hasta', hoy);
+    if (error || !rows) return;
+
+    const toEnCurso = [];
+    const toFinal = [];
+
+    for (const r of rows){
+      const hi = String(r.hora_ingreso || '15:00').slice(0,5);
+      const hs = String(r.hora_salida  || '11:00').slice(0,5);
+
+      const start = new Date(`${r.fecha_desde}T${hi}:00`);
+      const end   = new Date(`${r.fecha_hasta}T${hs}:00`);
+
+      if (now >= end) {
+        if (r.estado !== 'finalizada') toFinal.push(r.id);
+      } else if (now >= start && now < end) {
+        if (r.estado === 'confirmada') toEnCurso.push(r.id);
+      }
+    }
+
+    if (toEnCurso.length){
+      await supabase.from('reservas')
+        .update({ estado: 'en_curso', updated_at: nowIso })
+        .in('id', toEnCurso);
+    }
+    if (toFinal.length){
+      await supabase.from('reservas')
+        .update({ estado: 'finalizada', updated_at: nowIso })
+        .in('id', toFinal);
+    }
   }
 
   // Date pickers dd/mm/aaaa (Flatpickr)
@@ -486,6 +522,9 @@
       document.getElementById('resDesde').value = desde;
       document.getElementById('resHasta').value = hasta;
     }
+    document.getElementById('resHoraIngreso').value = String(r?.hora_ingreso ?? '15:00').slice(0,5);
+    document.getElementById('resHoraSalida').value = String(r?.hora_salida ?? '11:00').slice(0,5);
+
     document.getElementById('resHuesped').value = r?.huesped_nombre ?? "";
     document.getElementById('resTel').value = r?.huesped_telefono ?? "";
     document.getElementById('resPers').value = r?.personas ?? 1;
@@ -632,7 +671,7 @@
             return {
               title: `${r.cabanas?.nombre ?? 'Cabaña'} - ${r.huesped_nombre}`,
               start: r.fecha_desde,
-              end: r.fecha_hasta,
+              end: addDaysISO(r.fecha_hasta, 1), // solo visual (FullCalendar usa end exclusivo)
               allDay: true,
               backgroundColor: c.bg,
               borderColor: c.border,
