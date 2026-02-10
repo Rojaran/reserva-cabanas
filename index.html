@@ -6,7 +6,9 @@
   <title>Reserva de Cabañas (Admin)</title>
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- FullCalendar CSS correcto -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/main.min.css" rel="stylesheet">
+  <!-- Flatpickr -->
   <link href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" rel="stylesheet">
 
   <style>
@@ -14,7 +16,6 @@
     .card { border-radius: 16px; }
     .btn, .form-control, .form-select { border-radius: 14px; }
     #calendar { background:#fff; border-radius:16px; padding:12px; }
-    .sticky-actions { position: sticky; bottom: 0; background: #f6f7f9; padding: 10px 0; }
     .flatpickr-input[readonly] { background:#fff; }
   </style>
 </head>
@@ -42,18 +43,18 @@
           <div id="loginMsg" class="alert alert-danger d-none"></div>
 
           <div class="mb-3">
-            <label class="form-label">Email</label>
+            <label class="form-label" for="email">Email</label>
             <input id="email" class="form-control" type="email" autocomplete="username" required>
           </div>
           <div class="mb-3">
-            <label class="form-label">Contraseña</label>
+            <label class="form-label" for="password">Contraseña</label>
             <input id="password" class="form-control" type="password" autocomplete="current-password" required>
           </div>
 
           <button id="btnLogin" class="btn btn-dark w-100">Entrar</button>
 
           <div class="text-muted small mt-3">
-            * Debes estar en la lista de admins (tabla <code>public.admins</code>).
+            * Debes estar en la tabla <code>public.admins</code>.
           </div>
         </div>
       </div>
@@ -77,7 +78,7 @@
             </select>
 
             <div class="text-muted small">
-              Tip: toca un bloque en el calendario para editarlo.
+              Tip: toca una reserva para editarla. Toca un día para crear una nueva.
             </div>
           </div>
         </div>
@@ -125,9 +126,9 @@
             <label class="form-label">Salida</label>
             <input id="resHasta" class="form-control" type="text" inputmode="numeric" placeholder="dd/mm/aaaa">
           </div>
-          <div class="form-text">Salida es día de retiro (no incluye noche). Rango [ingreso, salida).</div>
         </div>
 
+        <!-- HORAS (AQUÍ ESTÁN) -->
         <div class="row g-2 mt-2">
           <div class="col-6">
             <label class="form-label">Hora ingreso</label>
@@ -138,7 +139,8 @@
             <input id="resHoraSalida" class="form-control" type="time" value="11:00">
           </div>
         </div>
-        <div class="form-text">Ej: ingreso 15:00, salida 11:00.</div>
+
+        <div class="form-text">Salida es día de retiro (no incluye noche). Rango [ingreso, salida).</div>
 
         <hr>
 
@@ -224,13 +226,15 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
 
 <script type="module">
   import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
   // ========= CONFIGURA ESTO =========
-  const SUPABASE_URL = "https://ibetbsxasxxakjdlaocp.supabase.co";
-  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImliZXRic3hhc3h4YWtqZGxhb2NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2NzIyMzYsImV4cCI6MjA4NjI0ODIzNn0.U4LyGRebUDWqXlEt8zEEde9UILXzWfFjzbghqPhBnQg";
+  const SUPABASE_URL = "PEGA_AQUI_TU_SUPABASE_URL";
+  const SUPABASE_ANON_KEY = "PEGA_AQUI_TU_SUPABASE_ANON_KEY";
   // =================================
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -240,107 +244,116 @@
   const viewApp = document.getElementById('viewApp');
   const btnLogout = document.getElementById('btnLogout');
   const userLabel = document.getElementById('userLabel');
-
   const loginMsg = document.getElementById('loginMsg');
   const btnLogin = document.getElementById('btnLogin');
 
   const cabanaFilter = document.getElementById('cabanaFilter');
   const cabanaList = document.getElementById('cabanaList');
 
-  // Modals
   const modalReserva = new bootstrap.Modal(document.getElementById('modalReserva'));
   const modalCabana = new bootstrap.Modal(document.getElementById('modalCabana'));
 
-  // Helpers
   const show = el => el.classList.remove('d-none');
   const hide = el => el.classList.add('d-none');
   const alertMsg = (el, msg) => { el.textContent = msg; show(el); };
 
+  // Roles
+  let currentRole = "none";
+  const canWrite = () => (currentRole === "admin" || currentRole === "operador");
+  function applyRoleUI(){
+    const w = canWrite();
+    document.getElementById('btnNewReserva').disabled = !w;
+    document.getElementById('btnNewCabana').disabled = !w;
+    document.getElementById('btnGuardarReserva').disabled = !w;
+    document.getElementById('btnGuardarCabana').disabled = !w;
+    document.getElementById('btnCancelarReserva').disabled = !w;
+  }
+
   function todayISO(){
-    const d = new Date();
-    d.setHours(0,0,0,0);
+    const d = new Date(); d.setHours(0,0,0,0);
     return d.toISOString().slice(0,10);
   }
   function tomorrowISO(){
-    const d = new Date();
-    d.setDate(d.getDate()+1);
-    d.setHours(0,0,0,0);
+    const d = new Date(); d.setDate(d.getDate()+1); d.setHours(0,0,0,0);
     return d.toISOString().slice(0,10);
   }
-
-
   function addDaysISO(isoDate, days){
     const d = new Date(isoDate + "T00:00:00");
     d.setDate(d.getDate() + days);
     return d.toISOString().slice(0,10);
   }
 
-  // Colores por estado
+  // Flatpickr (muestra dd/mm, guarda Y-m-d)
+  let fpDesde = null;
+  let fpHasta = null;
+  function initDatePickers(){
+    if (fpDesde && fpHasta) return;
+    if (!window.flatpickr) return;
+
+    if (window.flatpickr.l10ns?.es) window.flatpickr.localize(window.flatpickr.l10ns.es);
+
+    fpDesde = window.flatpickr("#resDesde", {
+      dateFormat: "Y-m-d",
+      altInput: true,
+      altFormat: "d/m/Y",
+      allowInput: true
+    });
+    fpHasta = window.flatpickr("#resHasta", {
+      dateFormat: "Y-m-d",
+      altInput: true,
+      altFormat: "d/m/Y",
+      allowInput: true
+    });
+  }
+  window.addEventListener('DOMContentLoaded', () => initDatePickers());
+  document.getElementById('modalReserva')?.addEventListener('shown.bs.modal', () => initDatePickers());
+
+  // Colores
   function colorByEstado(estado){
     switch(String(estado || '').toLowerCase()){
-      case 'confirmada': return { bg:'#198754', border:'#198754', text:'#ffffff' }; // verde
-      case 'en_curso':   return { bg:'#0d6efd', border:'#0d6efd', text:'#ffffff' }; // azul
-      case 'finalizada': return { bg:'#6c757d', border:'#6c757d', text:'#ffffff' }; // gris
-      case 'cancelada':  return { bg:'#dc3545', border:'#dc3545', text:'#ffffff' }; // rojo
+      case 'confirmada': return { bg:'#198754', border:'#198754', text:'#ffffff' };
+      case 'en_curso':   return { bg:'#0d6efd', border:'#0d6efd', text:'#ffffff' };
+      case 'finalizada': return { bg:'#6c757d', border:'#6c757d', text:'#ffffff' };
+      case 'cancelada':  return { bg:'#dc3545', border:'#dc3545', text:'#ffffff' };
       default:           return { bg:'#212529', border:'#212529', text:'#ffffff' };
     }
   }
 
-  // Auto-actualiza estados según fecha (cliente)
+  // Auto-estados con horas
   async function autoUpdateEstados(){
-    const hoy = todayISO();
-    const nowIso = new Date().toISOString();
+    const now = new Date();
+    const nowIso = now.toISOString();
 
-    // confirmada -> en_curso (si hoy está dentro del rango)
-    await supabase.from('reservas')
-      .update({ estado: 'en_curso', updated_at: nowIso })
-      .eq('estado', 'confirmada')
-      .lte('fecha_desde', hoy)
-      .gt('fecha_hasta', hoy);
+    const { data: rows } = await supabase.from('reservas')
+      .select('id,estado,fecha_desde,fecha_hasta,hora_ingreso,hora_salida')
+      .in('estado', ['confirmada','en_curso']);
 
-    // confirmada/en_curso -> finalizada (si ya pasó la fecha de salida)
-    await supabase.from('reservas')
-      .update({ estado: 'finalizada', updated_at: nowIso })
-      .in('estado', ['confirmada','en_curso'])
-      .lte('fecha_hasta', hoy);
-  }
+    if (!rows) return;
 
-  // Date pickers dd/mm/aaaa (Flatpickr)
-  let fpDesde = null;
-  let fpHasta = null;
+    const toEnCurso = [];
+    const toFinal = [];
 
-  function initDatePickers(){
-    if (fpDesde && fpHasta) return;
+    for (const r of rows){
+      const hi = String(r.hora_ingreso || '15:00').slice(0,5);
+      const hs = String(r.hora_salida  || '11:00').slice(0,5);
+      const start = new Date(`${r.fecha_desde}T${hi}:00`);
+      const end   = new Date(`${r.fecha_hasta}T${hs}:00`);
 
-    const fp = window.flatpickr;
-    if (!fp) return;
-
-    // Configura español
-    if (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.es) {
-      fp.localize(window.flatpickr.l10ns.es);
+      if (now >= end) {
+        if (r.estado !== 'finalizada') toFinal.push(r.id);
+      } else if (now >= start && now < end) {
+        if (r.estado === 'confirmada') toEnCurso.push(r.id);
+      }
     }
 
-  // Inicializa flatpickr al cargar y al abrir el modal
-  window.addEventListener('DOMContentLoaded', () => { initDatePickers(); });
-  document.getElementById('modalReserva')?.addEventListener('shown.bs.modal', () => { initDatePickers(); });
-
-
-    fpDesde = fp("#resDesde", {
-      dateFormat: "Y-m-d",
-      altInput: true,
-      altFormat: "d/m/Y",
-      allowInput: true
-    });
-
-    fpHasta = fp("#resHasta", {
-      dateFormat: "Y-m-d",
-      altInput: true,
-      altFormat: "d/m/Y",
-      allowInput: true
-    });
+    if (toEnCurso.length){
+      await supabase.from('reservas').update({ estado:'en_curso', updated_at: nowIso }).in('id', toEnCurso);
+    }
+    if (toFinal.length){
+      await supabase.from('reservas').update({ estado:'finalizada', updated_at: nowIso }).in('id', toFinal);
+    }
   }
 
-  // Calendar
   let calendar;
 
   async function boot() {
@@ -358,12 +371,17 @@
       return;
     }
 
-    // Validar que sea admin (si no lo es, quedará sin permisos por RLS y le avisamos)
     try {
-      const { data, error } = await supabase.from('admins').select('user_id').limit(1);
+      const { data, error } = await supabase
+        .from('admins')
+        .select('user_id, role')
+        .eq('user_id', session.user.id)
+        .single();
       if (error) throw error;
-      if (!data || data.length === 0) throw new Error("No estás autorizado (no eres admin).");
-    } catch (e) {
+
+      currentRole = data.role || "none";
+      if (currentRole === "none") throw new Error("No autorizado.");
+    } catch {
       await supabase.auth.signOut();
       alertMsg(loginMsg, "No autorizado: tu usuario no está en la tabla de admins.");
       return;
@@ -372,7 +390,9 @@
     viewLogin.classList.add('d-none');
     viewApp.classList.remove('d-none');
     btnLogout.classList.remove('d-none');
-    userLabel.textContent = session.user.email;
+    userLabel.textContent = `${session.user.email} (${currentRole})`;
+
+    applyRoleUI();
 
     await loadCabanas();
     await autoUpdateEstados();
@@ -384,6 +404,8 @@
         if (calendar) calendar.refetchEvents();
       }, 10 * 60 * 1000);
     }
+
+    if (calendar) calendar.refetchEvents();
   }
 
   // LOGIN
@@ -394,71 +416,51 @@
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) alertMsg(loginMsg, error.message);
   });
-
-  btnLogout.addEventListener('click', async () => {
-    await supabase.auth.signOut();
-  });
+  btnLogout.addEventListener('click', async () => { await supabase.auth.signOut(); });
 
   // CABANAS
   async function loadCabanas() {
-    const { data, error } = await supabase
-      .from('cabanas')
+    const { data, error } = await supabase.from('cabanas')
       .select('id,nombre,capacidad,activa')
-      .order('nombre', { ascending: true });
+      .order('nombre', { ascending:true });
 
     if (error) {
-      cabanaList.innerHTML = `<div class="text-danger">Error cargando cabañas: ${error.message}</div>`;
+      cabanaList.innerHTML = `<div class="text-danger">Error: ${escapeHtml(error.message)}</div>`;
       return;
     }
 
-    // filtros/selects
     cabanaFilter.innerHTML = `<option value="">Todas</option>`;
     const resCabana = document.getElementById('resCabana');
     resCabana.innerHTML = "";
-
     cabanaList.innerHTML = "";
 
-    data.forEach(c => {
-      cabanaFilter.insertAdjacentHTML('beforeend',
-        `<option value="${c.id}">${escapeHtml(c.nombre)}</option>`
-      );
-      resCabana.insertAdjacentHTML('beforeend',
-        `<option value="${c.id}">${escapeHtml(c.nombre)}</option>`
-      );
-
+    (data || []).forEach(c => {
+      cabanaFilter.insertAdjacentHTML('beforeend', `<option value="${c.id}">${escapeHtml(c.nombre)}</option>`);
+      resCabana.insertAdjacentHTML('beforeend', `<option value="${c.id}">${escapeHtml(c.nombre)}</option>`);
       cabanaList.insertAdjacentHTML('beforeend', `
         <div class="d-flex justify-content-between align-items-center py-1">
           <div>
             <div>${escapeHtml(c.nombre)} ${c.activa ? "" : "<span class='text-muted'>(inactiva)</span>"}</div>
             <div class="text-muted">Cap: ${c.capacidad}</div>
           </div>
-          <button class="btn btn-sm btn-outline-secondary" data-edit-cabana="${c.id}">Editar</button>
         </div>
       `);
     });
-
-    // bind edit buttons
-    cabanaList.querySelectorAll('[data-edit-cabana]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const id = Number(btn.getAttribute('data-edit-cabana'));
-        const cab = data.find(x => x.id === id);
-        openCabanaModal(cab);
-      });
-    });
   }
 
-  document.getElementById('btnNewCabana').addEventListener('click', () => openCabanaModal(null));
-
-  function openCabanaModal(c) {
+  // Nueva cabaña (simple)
+  document.getElementById('btnNewCabana').addEventListener('click', () => {
+    if (!canWrite()) return;
     hide(document.getElementById('cabanaMsg'));
-    document.getElementById('cabanaId').value = c?.id ?? "";
-    document.getElementById('cabNombre').value = c?.nombre ?? "";
-    document.getElementById('cabCap').value = c?.capacidad ?? 1;
-    document.getElementById('cabActiva').checked = c?.activa ?? true;
+    document.getElementById('cabanaId').value = "";
+    document.getElementById('cabNombre').value = "";
+    document.getElementById('cabCap').value = 1;
+    document.getElementById('cabActiva').checked = true;
     modalCabana.show();
-  }
+  });
 
   document.getElementById('btnGuardarCabana').addEventListener('click', async () => {
+    if (!canWrite()) return;
     const msg = document.getElementById('cabanaMsg');
     hide(msg);
 
@@ -468,104 +470,110 @@
       capacidad: Number(document.getElementById('cabCap').value || 1),
       activa: document.getElementById('cabActiva').checked
     };
-
     if (!payload.nombre) return alertMsg(msg, "Nombre requerido.");
 
-    let resp;
-    if (id) {
-      resp = await supabase.from('cabanas').update(payload).eq('id', Number(id));
-    } else {
-      resp = await supabase.from('cabanas').insert(payload);
-    }
+    const resp = id
+      ? await supabase.from('cabanas').update(payload).eq('id', Number(id))
+      : await supabase.from('cabanas').insert(payload);
+
     if (resp.error) return alertMsg(msg, resp.error.message);
 
     modalCabana.hide();
     await loadCabanas();
-    if (calendar) {
-      queueMicrotask(() => calendar.refetchEvents());
-    }
+    if (calendar) queueMicrotask(() => calendar.refetchEvents());
   });
 
   // RESERVAS
-  document.getElementById('btnNewReserva').addEventListener('click', () => openReservaModal(null));
+  document.getElementById('btnNewReserva').addEventListener('click', () => {
+    if (!canWrite()) return;
+    openReservaModal(null);
+  });
 
-  function openReservaModal(r) {
+  function openReservaModal(r){
     hide(document.getElementById('reservaMsg'));
-
     initDatePickers();
 
     document.getElementById('reservaId').value = r?.id ?? "";
     document.getElementById('resCabana').value = r?.cabana_id ?? (cabanaFilter.value || document.getElementById('resCabana').value);
+
     const desde = r?.fecha_desde ?? todayISO();
     const hasta = r?.fecha_hasta ?? tomorrowISO();
 
-    if (fpDesde && fpHasta) {
+    if (fpDesde && fpHasta){
       fpDesde.setDate(desde, true);
       fpHasta.setDate(hasta, true);
     } else {
       document.getElementById('resDesde').value = desde;
       document.getElementById('resHasta').value = hasta;
     }
+
+    document.getElementById('resHoraIngreso').value = String(r?.hora_ingreso ?? '15:00').slice(0,5);
+    document.getElementById('resHoraSalida').value = String(r?.hora_salida ?? '11:00').slice(0,5);
+
     document.getElementById('resHuesped').value = r?.huesped_nombre ?? "";
     document.getElementById('resTel').value = r?.huesped_telefono ?? "";
     document.getElementById('resPers').value = r?.personas ?? 1;
     document.getElementById('resNotas').value = r?.notas ?? "";
-    document.getElementById('resHoraIngreso').value = String(r?.hora_ingreso ?? '15:00').slice(0,5);
-    document.getElementById('resHoraSalida').value = String(r?.hora_salida ?? '11:00').slice(0,5);
     document.getElementById('resEstado').value = r?.estado ?? "confirmada";
 
     const btnCancelar = document.getElementById('btnCancelarReserva');
     if (r?.id) show(btnCancelar); else hide(btnCancelar);
 
+    applyRoleUI();
     document.getElementById('reservaTitle').textContent = r?.id ? `Editar reserva #${r.id}` : "Nueva reserva";
     modalReserva.show();
   }
 
   document.getElementById('btnGuardarReserva').addEventListener('click', async () => {
+    if (!canWrite()) return;
+
     const msg = document.getElementById('reservaMsg');
     hide(msg);
 
     const id = document.getElementById('reservaId').value;
+
+    const fecha_desde = fpDesde?.selectedDates?.[0]
+      ? fpDesde.formatDate(fpDesde.selectedDates[0], 'Y-m-d')
+      : document.getElementById('resDesde').value;
+
+    const fecha_hasta = fpHasta?.selectedDates?.[0]
+      ? fpHasta.formatDate(fpHasta.selectedDates[0], 'Y-m-d')
+      : document.getElementById('resHasta').value;
+
     const payload = {
       cabana_id: Number(document.getElementById('resCabana').value),
-      fecha_desde: (fpDesde?.selectedDates?.[0] ? fpDesde.formatDate(fpDesde.selectedDates[0], 'Y-m-d') : document.getElementById('resDesde').value),
-      fecha_hasta: (fpHasta?.selectedDates?.[0] ? fpHasta.formatDate(fpHasta.selectedDates[0], 'Y-m-d') : document.getElementById('resHasta').value),
+      fecha_desde,
+      fecha_hasta,
+      hora_ingreso: document.getElementById('resHoraIngreso').value || '15:00',
+      hora_salida: document.getElementById('resHoraSalida').value || '11:00',
       huesped_nombre: document.getElementById('resHuesped').value.trim(),
       huesped_telefono: document.getElementById('resTel').value.trim(),
       personas: Number(document.getElementById('resPers').value || 1),
       notas: document.getElementById('resNotas').value.trim(),
-      estado: document.getElementById('resEstado').value
+      estado: document.getElementById('resEstado').value,
+      updated_at: new Date().toISOString()
     };
 
     if (!payload.huesped_nombre) return alertMsg(msg, "Nombre del huésped requerido.");
     if (!payload.fecha_desde || !payload.fecha_hasta) return alertMsg(msg, "Fechas requeridas.");
     if (payload.fecha_hasta <= payload.fecha_desde) return alertMsg(msg, "La salida debe ser mayor que el ingreso.");
 
-    // Validación de solape (client-side) + igual queda protegido por RLS (solo admins)
     const conflict = await hasConflict(payload.cabana_id, payload.fecha_desde, payload.fecha_hasta, id ? Number(id) : 0);
     if (conflict) return alertMsg(msg, "Conflicto: ya existe una reserva en esas fechas para esa cabaña.");
 
-    let resp;
-    if (id) {
-      resp = await supabase.from('reservas')
-        .update({ ...payload, updated_at: new Date().toISOString() })
-        .eq('id', Number(id));
-    } else {
-      resp = await supabase.from('reservas')
-        .insert({ ...payload });
-    }
+    const resp = id
+      ? await supabase.from('reservas').update(payload).eq('id', Number(id))
+      : await supabase.from('reservas').insert(payload);
 
     if (resp.error) return alertMsg(msg, resp.error.message);
 
     modalReserva.hide();
     await autoUpdateEstados();
-    if (calendar) {
-      // Fuerza recarga visual sin F5
-      queueMicrotask(() => calendar.refetchEvents());
-    }
+    if (calendar) queueMicrotask(() => calendar.refetchEvents());
   });
 
   document.getElementById('btnCancelarReserva').addEventListener('click', async () => {
+    if (!canWrite()) return;
     const id = document.getElementById('reservaId').value;
     if (!id) return;
     if (!confirm("¿Cancelar esta reserva?")) return;
@@ -576,38 +584,27 @@
 
     if (resp.error) return alert(resp.error.message);
     modalReserva.hide();
-    await autoUpdateEstados();
-    if (calendar) {
-      // Fuerza recarga visual sin F5
-      queueMicrotask(() => calendar.refetchEvents());
-    }
+    if (calendar) queueMicrotask(() => calendar.refetchEvents());
   });
 
   async function hasConflict(cabanaId, desde, hasta, excludeId = 0) {
-    // Traemos reservas que intersectan, excluyendo canceladas
-    // Intersección: fecha_desde < hasta AND fecha_hasta > desde
-    let q = supabase.from('reservas')
-      .select('id')
+    let q = supabase.from('reservas').select('id')
       .eq('cabana_id', cabanaId)
       .neq('estado', 'cancelada')
       .lt('fecha_desde', hasta)
       .gt('fecha_hasta', desde)
       .limit(1);
-
     if (excludeId) q = q.neq('id', excludeId);
-
     const { data, error } = await q;
-    if (error) return false; // si falla, no bloqueamos (pero normalmente no fallará)
+    if (error) return false;
     return (data && data.length > 0);
   }
 
   // CALENDARIO
-  function initCalendar() {
+  function initCalendar(){
     if (calendar) return;
 
-    const calEl = document.getElementById('calendar');
-
-    calendar = new FullCalendar.Calendar(calEl, {
+    calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
       initialView: window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth',
       height: "auto",
       locale: 'es',
@@ -617,24 +614,30 @@
         center: 'title',
         right: window.innerWidth < 768 ? 'listWeek,dayGridMonth' : 'dayGridMonth,timeGridWeek,listWeek'
       },
-      selectable: true,
+      selectable: canWrite(),
       selectMirror: true,
-      select: (info) => {
-        // Selección de rango (arrastra en desktop; en móvil suele ser tap + drag)
-        openReservaModal({
-          cabana_id: cabanaFilter.value ? Number(cabanaFilter.value) : undefined,
-          fecha_desde: info.startStr.slice(0,10),
-          fecha_hasta: info.endStr.slice(0,10),
-          estado: 'confirmada',
-          personas: 1
-        });
-      },
+
       dateClick: (info) => {
-        // Click en un día: crea 1 noche por defecto (desde ese día hasta el siguiente)
+        if (!canWrite()) return;
         openReservaModal({
           cabana_id: cabanaFilter.value ? Number(cabanaFilter.value) : undefined,
           fecha_desde: info.dateStr,
           fecha_hasta: addDaysISO(info.dateStr, 1),
+          hora_ingreso: '15:00',
+          hora_salida: '11:00',
+          estado: 'confirmada',
+          personas: 1
+        });
+      },
+
+      select: (info) => {
+        if (!canWrite()) return;
+        openReservaModal({
+          cabana_id: cabanaFilter.value ? Number(cabanaFilter.value) : undefined,
+          fecha_desde: info.startStr.slice(0,10),
+          fecha_hasta: info.endStr.slice(0,10),
+          hora_ingreso: '15:00',
+          hora_salida: '11:00',
           estado: 'confirmada',
           personas: 1
         });
@@ -643,13 +646,11 @@
       events: async (fetchInfo, success, failure) => {
         try {
           const cabanaId = cabanaFilter.value ? Number(cabanaFilter.value) : null;
-
           let q = supabase.from('reservas')
             .select('id,cabana_id,fecha_desde,fecha_hasta,hora_ingreso,hora_salida,estado,huesped_nombre,cabanas(nombre)')
             .neq('estado', 'cancelada')
             .lt('fecha_desde', fetchInfo.endStr.slice(0,10))
             .gt('fecha_hasta', fetchInfo.startStr.slice(0,10));
-
           if (cabanaId) q = q.eq('cabana_id', cabanaId);
 
           const { data, error } = await q;
@@ -657,29 +658,29 @@
 
           const events = (data || []).map(r => {
             const c = colorByEstado(r.estado);
+            const hi = String(r.hora_ingreso || '15:00').slice(0,5);
+            const hs = String(r.hora_salida  || '11:00').slice(0,5);
             return {
-              title: `${r.cabanas?.nombre ?? 'Cabaña'} - ${r.huesped_nombre} (${String(r.hora_ingreso||'15:00').slice(0,5)}→${String(r.hora_salida||'11:00').slice(0,5)})`,
+              title: `${r.cabanas?.nombre ?? 'Cabaña'} - ${r.huesped_nombre} (${hi}→${hs})`,
               start: r.fecha_desde,
               end: addDaysISO(r.fecha_hasta, 1), // visual: incluye el día de salida en vista mensual
               allDay: true,
               backgroundColor: c.bg,
               borderColor: c.border,
               textColor: c.text,
-              extendedProps: { reservaId: r.id, estado: r.estado }
+              extendedProps: { reservaId: r.id }
             };
           });
+
           success(events);
         } catch (e) {
           failure(e);
         }
       },
+
       eventClick: async (info) => {
         const id = info.event.extendedProps.reservaId;
-        const { data, error } = await supabase.from('reservas')
-          .select('*')
-          .eq('id', id)
-          .single();
-
+        const { data, error } = await supabase.from('reservas').select('*').eq('id', id).single();
         if (error) return alert(error.message);
         openReservaModal(data);
       }
@@ -689,7 +690,6 @@
     calendar.render();
   }
 
-  // tiny helper
   function escapeHtml(s){
     return String(s ?? "").replace(/[&<>"']/g, m => ({
       "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
