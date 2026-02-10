@@ -15,6 +15,7 @@
     .btn, .form-control, .form-select { border-radius: 14px; }
     #calendar { background:#fff; border-radius:16px; padding:12px; }
     .sticky-actions { position: sticky; bottom: 0; background: #f6f7f9; padding: 10px 0; }
+    .flatpickr-input[readonly] { background:#fff; }
   </style>
 </head>
 
@@ -126,6 +127,18 @@
           </div>
           <div class="form-text">Salida es día de retiro (no incluye noche). Rango [ingreso, salida).</div>
         </div>
+
+        <div class="row g-2 mt-2">
+          <div class="col-6">
+            <label class="form-label">Hora ingreso</label>
+            <input id="resHoraIngreso" class="form-control" type="time" value="15:00">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Hora salida</label>
+            <input id="resHoraSalida" class="form-control" type="time" value="11:00">
+          </div>
+        </div>
+        <div class="form-text">Ej: ingreso 15:00, salida 11:00.</div>
 
         <hr>
 
@@ -307,9 +320,10 @@
       fp.localize(window.flatpickr.l10ns.es);
     }
 
-  // Forzar inicialización (evita que quede mostrando YYYY-MM-DD si el modal se abre antes)
+  // Inicializa flatpickr al cargar y al abrir el modal
   window.addEventListener('DOMContentLoaded', () => { initDatePickers(); });
   document.getElementById('modalReserva')?.addEventListener('shown.bs.modal', () => { initDatePickers(); });
+
 
     fpDesde = fp("#resDesde", {
       dateFormat: "Y-m-d",
@@ -496,6 +510,8 @@
     document.getElementById('resTel').value = r?.huesped_telefono ?? "";
     document.getElementById('resPers').value = r?.personas ?? 1;
     document.getElementById('resNotas').value = r?.notas ?? "";
+    document.getElementById('resHoraIngreso').value = String(r?.hora_ingreso ?? '15:00').slice(0,5);
+    document.getElementById('resHoraSalida').value = String(r?.hora_salida ?? '11:00').slice(0,5);
     document.getElementById('resEstado').value = r?.estado ?? "confirmada";
 
     const btnCancelar = document.getElementById('btnCancelarReserva');
@@ -629,7 +645,7 @@
           const cabanaId = cabanaFilter.value ? Number(cabanaFilter.value) : null;
 
           let q = supabase.from('reservas')
-            .select('id,cabana_id,fecha_desde,fecha_hasta,estado,huesped_nombre,cabanas(nombre)')
+            .select('id,cabana_id,fecha_desde,fecha_hasta,hora_ingreso,hora_salida,estado,huesped_nombre,cabanas(nombre)')
             .neq('estado', 'cancelada')
             .lt('fecha_desde', fetchInfo.endStr.slice(0,10))
             .gt('fecha_hasta', fetchInfo.startStr.slice(0,10));
@@ -642,9 +658,9 @@
           const events = (data || []).map(r => {
             const c = colorByEstado(r.estado);
             return {
-              title: `${r.cabanas?.nombre ?? 'Cabaña'} - ${r.huesped_nombre}`,
+              title: `${r.cabanas?.nombre ?? 'Cabaña'} - ${r.huesped_nombre} (${String(r.hora_ingreso||'15:00').slice(0,5)}→${String(r.hora_salida||'11:00').slice(0,5)})`,
               start: r.fecha_desde,
-              end: r.fecha_hasta,
+              end: addDaysISO(r.fecha_hasta, 1), // visual: incluye el día de salida en vista mensual
               allDay: true,
               backgroundColor: c.bg,
               borderColor: c.border,
