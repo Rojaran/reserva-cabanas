@@ -14,7 +14,8 @@
     .card { border-radius: 16px; }
     .btn, .form-control, .form-select { border-radius: 14px; }
     #calendar { background:#fff; border-radius:16px; padding:12px; }
-    .sticky-actions { position: sticky; bottom: 0; background: #f6f7f9; padding: 10px 0; }
+    /* Flatpickr altInput se ve como input normal */
+    .flatpickr-input[readonly] { background: #fff; }
   </style>
 </head>
 
@@ -76,7 +77,7 @@
             </select>
 
             <div class="text-muted small">
-              Tip: toca un bloque en el calendario para editarlo.
+              Tip: toca una reserva en el calendario para editarla. Toca un día para crear una nueva.
             </div>
           </div>
         </div>
@@ -124,19 +125,20 @@
             <label class="form-label">Salida</label>
             <input id="resHasta" class="form-control" type="text" inputmode="numeric" placeholder="dd/mm/aaaa">
           </div>
-          <div class="row g-2 mt-1">
-            <div class="col-6">
-              <label class="form-label">Hora ingreso</label>
-              <input id="resHoraIngreso" class="form-control" type="time" value="15:00">
-            </div>
-            <div class="col-6">
-              <label class="form-label">Hora salida</label>
-              <input id="resHoraSalida" class="form-control" type="time" value="11:00">
-            </div>
-          </div>
-          <div class="form-text">Ej: ingreso 15:00, salida 11:00.</div>
-          <div class="form-text">Salida es día de retiro (no incluye noche). Rango [ingreso, salida).</div>
         </div>
+
+        <div class="row g-2 mt-2">
+          <div class="col-6">
+            <label class="form-label">Hora ingreso</label>
+            <input id="resHoraIngreso" class="form-control" type="time" value="15:00">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Hora salida</label>
+            <input id="resHoraSalida" class="form-control" type="time" value="11:00">
+          </div>
+        </div>
+
+        <div class="form-text">Salida es día de retiro (no incluye noche). Rango [ingreso, salida).</div>
 
         <hr>
 
@@ -222,6 +224,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
 
 <script type="module">
   import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
@@ -249,10 +253,23 @@
   const modalReserva = new bootstrap.Modal(document.getElementById('modalReserva'));
   const modalCabana = new bootstrap.Modal(document.getElementById('modalCabana'));
 
-  // Helpers
+  // Helpers UI
   const show = el => el.classList.remove('d-none');
   const hide = el => el.classList.add('d-none');
   const alertMsg = (el, msg) => { el.textContent = msg; show(el); };
+
+  // Roles
+  let currentRole = "none";
+  const canWrite = () => (currentRole === "admin" || currentRole === "operador");
+
+  function applyRoleUI(){
+    const w = canWrite();
+    document.getElementById('btnNewReserva').disabled = !w;
+    document.getElementById('btnNewCabana').disabled = !w;
+    document.getElementById('btnGuardarReserva').disabled = !w;
+    document.getElementById('btnGuardarCabana').disabled = !w;
+    document.getElementById('btnCancelarReserva').disabled = !w;
+  }
 
   function todayISO(){
     const d = new Date();
@@ -265,12 +282,37 @@
     d.setHours(0,0,0,0);
     return d.toISOString().slice(0,10);
   }
-
-
   function addDaysISO(isoDate, days){
     const d = new Date(isoDate + "T00:00:00");
     d.setDate(d.getDate() + days);
     return d.toISOString().slice(0,10);
+  }
+
+  // Date pickers (muestra dd/mm, guarda YYYY-MM-DD)
+  let fpDesde = null;
+  let fpHasta = null;
+
+  function initDatePickers(){
+    if (fpDesde && fpHasta) return;
+    if (!window.flatpickr) return;
+
+    if (window.flatpickr.l10ns?.es) {
+      window.flatpickr.localize(window.flatpickr.l10ns.es);
+    }
+
+    fpDesde = window.flatpickr("#resDesde", {
+      dateFormat: "Y-m-d",
+      altInput: true,
+      altFormat: "d/m/Y",
+      allowInput: true
+    });
+
+    fpHasta = window.flatpickr("#resHasta", {
+      dateFormat: "Y-m-d",
+      altInput: true,
+      altFormat: "d/m/Y",
+      allowInput: true
+    });
   }
 
   // Colores por estado
@@ -284,12 +326,8 @@
     }
   }
 
-  // Auto-actualiza estados según fecha (cliente)
+  // Auto-estado considerando horas
   async function autoUpdateEstados(){
-    // Ahora con horas (hora_ingreso / hora_salida)
-    // Regla:
-    // - en_curso si now >= (fecha_desde + hora_ingreso) y now < (fecha_hasta + hora_salida)
-    // - finalizada si now >= (fecha_hasta + hora_salida)
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -305,7 +343,6 @@
     for (const r of rows){
       const hi = String(r.hora_ingreso || '15:00').slice(0,5);
       const hs = String(r.hora_salida  || '11:00').slice(0,5);
-
       const start = new Date(`${r.fecha_desde}T${hi}:00`);
       const end   = new Date(`${r.fecha_hasta}T${hs}:00`);
 
@@ -328,36 +365,6 @@
     }
   }
 
-  // Date pickers dd/mm/aaaa (Flatpickr)
-  let fpDesde = null;
-  let fpHasta = null;
-
-  function initDatePickers(){
-    if (fpDesde && fpHasta) return;
-
-    const fp = window.flatpickr;
-    if (!fp) return;
-
-    // Configura español
-    if (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.es) {
-      fp.localize(window.flatpickr.l10ns.es);
-    }
-
-    fpDesde = fp("#resDesde", {
-      dateFormat: "Y-m-d",
-      altInput: true,
-      altFormat: "d/m/Y",
-      allowInput: true
-    });
-
-    fpHasta = fp("#resHasta", {
-      dateFormat: "Y-m-d",
-      altInput: true,
-      altFormat: "d/m/Y",
-      allowInput: true
-    });
-  }
-
   // Calendar
   let calendar;
 
@@ -376,11 +383,16 @@
       return;
     }
 
-    // Validar que sea admin (si no lo es, quedará sin permisos por RLS y le avisamos)
     try {
-      const { data, error } = await supabase.from('admins').select('user_id').limit(1);
+      const { data, error } = await supabase
+        .from('admins')
+        .select('user_id, role')
+        .eq('user_id', session.user.id)
+        .single();
+
       if (error) throw error;
-      if (!data || data.length === 0) throw new Error("No estás autorizado (no eres admin).");
+      currentRole = data.role || "none";
+      if (currentRole === "none") throw new Error("No autorizado.");
     } catch (e) {
       await supabase.auth.signOut();
       alertMsg(loginMsg, "No autorizado: tu usuario no está en la tabla de admins.");
@@ -390,7 +402,9 @@
     viewLogin.classList.add('d-none');
     viewApp.classList.remove('d-none');
     btnLogout.classList.remove('d-none');
-    userLabel.textContent = session.user.email;
+    userLabel.textContent = `${session.user.email} (${currentRole})`;
+
+    applyRoleUI();
 
     await loadCabanas();
     await autoUpdateEstados();
@@ -402,6 +416,8 @@
         if (calendar) calendar.refetchEvents();
       }, 10 * 60 * 1000);
     }
+
+    if (calendar) calendar.refetchEvents();
   }
 
   // LOGIN
@@ -425,18 +441,16 @@
       .order('nombre', { ascending: true });
 
     if (error) {
-      cabanaList.innerHTML = `<div class="text-danger">Error cargando cabañas: ${error.message}</div>`;
+      cabanaList.innerHTML = `<div class="text-danger">Error cargando cabañas: ${escapeHtml(error.message)}</div>`;
       return;
     }
 
-    // filtros/selects
     cabanaFilter.innerHTML = `<option value="">Todas</option>`;
     const resCabana = document.getElementById('resCabana');
     resCabana.innerHTML = "";
-
     cabanaList.innerHTML = "";
 
-    data.forEach(c => {
+    (data || []).forEach(c => {
       cabanaFilter.insertAdjacentHTML('beforeend',
         `<option value="${c.id}">${escapeHtml(c.nombre)}</option>`
       );
@@ -450,22 +464,24 @@
             <div>${escapeHtml(c.nombre)} ${c.activa ? "" : "<span class='text-muted'>(inactiva)</span>"}</div>
             <div class="text-muted">Cap: ${c.capacidad}</div>
           </div>
-          <button class="btn btn-sm btn-outline-secondary" data-edit-cabana="${c.id}">Editar</button>
+          <button class="btn btn-sm btn-outline-secondary" data-edit-cabana="${c.id}" ${canWrite() ? "" : "disabled"}>Editar</button>
         </div>
       `);
     });
 
-    // bind edit buttons
     cabanaList.querySelectorAll('[data-edit-cabana]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = Number(btn.getAttribute('data-edit-cabana'));
-        const cab = data.find(x => x.id === id);
-        openCabanaModal(cab);
+        const cab = (data || []).find(x => x.id === id);
+        openCabanaModal(cab || null);
       });
     });
   }
 
-  document.getElementById('btnNewCabana').addEventListener('click', () => openCabanaModal(null));
+  document.getElementById('btnNewCabana').addEventListener('click', () => {
+    if (!canWrite()) return;
+    openCabanaModal(null);
+  });
 
   function openCabanaModal(c) {
     hide(document.getElementById('cabanaMsg'));
@@ -477,6 +493,7 @@
   }
 
   document.getElementById('btnGuardarCabana').addEventListener('click', async () => {
+    if (!canWrite()) return;
     const msg = document.getElementById('cabanaMsg');
     hide(msg);
 
@@ -490,11 +507,9 @@
     if (!payload.nombre) return alertMsg(msg, "Nombre requerido.");
 
     let resp;
-    if (id) {
-      resp = await supabase.from('cabanas').update(payload).eq('id', Number(id));
-    } else {
-      resp = await supabase.from('cabanas').insert(payload);
-    }
+    if (id) resp = await supabase.from('cabanas').update(payload).eq('id', Number(id));
+    else resp = await supabase.from('cabanas').insert(payload);
+
     if (resp.error) return alertMsg(msg, resp.error.message);
 
     modalCabana.hide();
@@ -503,25 +518,29 @@
   });
 
   // RESERVAS
-  document.getElementById('btnNewReserva').addEventListener('click', () => openReservaModal(null));
+  document.getElementById('btnNewReserva').addEventListener('click', () => {
+    if (!canWrite()) return;
+    openReservaModal(null);
+  });
 
   function openReservaModal(r) {
     hide(document.getElementById('reservaMsg'));
-
     initDatePickers();
 
     document.getElementById('reservaId').value = r?.id ?? "";
     document.getElementById('resCabana').value = r?.cabana_id ?? (cabanaFilter.value || document.getElementById('resCabana').value);
+
     const desde = r?.fecha_desde ?? todayISO();
     const hasta = r?.fecha_hasta ?? tomorrowISO();
 
-    if (fpDesde && fpHasta) {
+    if (fpDesde && fpHasta){
       fpDesde.setDate(desde, true);
       fpHasta.setDate(hasta, true);
     } else {
       document.getElementById('resDesde').value = desde;
       document.getElementById('resHasta').value = hasta;
     }
+
     document.getElementById('resHoraIngreso').value = String(r?.hora_ingreso ?? '15:00').slice(0,5);
     document.getElementById('resHoraSalida').value = String(r?.hora_salida ?? '11:00').slice(0,5);
 
@@ -534,43 +553,46 @@
     const btnCancelar = document.getElementById('btnCancelarReserva');
     if (r?.id) show(btnCancelar); else hide(btnCancelar);
 
+    // Solo lectura: permite ver, pero no guardar/cancelar
+    applyRoleUI();
+
     document.getElementById('reservaTitle').textContent = r?.id ? `Editar reserva #${r.id}` : "Nueva reserva";
     modalReserva.show();
   }
 
   document.getElementById('btnGuardarReserva').addEventListener('click', async () => {
+    if (!canWrite()) return;
+
     const msg = document.getElementById('reservaMsg');
     hide(msg);
 
     const id = document.getElementById('reservaId').value;
+
+    // Flatpickr guarda el value como Y-m-d aunque muestre d/m/Y
     const payload = {
       cabana_id: Number(document.getElementById('resCabana').value),
       fecha_desde: document.getElementById('resDesde').value,
       fecha_hasta: document.getElementById('resHasta').value,
+      hora_ingreso: document.getElementById('resHoraIngreso').value || '15:00',
+      hora_salida: document.getElementById('resHoraSalida').value || '11:00',
       huesped_nombre: document.getElementById('resHuesped').value.trim(),
       huesped_telefono: document.getElementById('resTel').value.trim(),
       personas: Number(document.getElementById('resPers').value || 1),
       notas: document.getElementById('resNotas').value.trim(),
-      estado: document.getElementById('resEstado').value
+      estado: document.getElementById('resEstado').value,
+      updated_at: new Date().toISOString()
     };
 
     if (!payload.huesped_nombre) return alertMsg(msg, "Nombre del huésped requerido.");
     if (!payload.fecha_desde || !payload.fecha_hasta) return alertMsg(msg, "Fechas requeridas.");
     if (payload.fecha_hasta <= payload.fecha_desde) return alertMsg(msg, "La salida debe ser mayor que el ingreso.");
 
-    // Validación de solape (client-side) + igual queda protegido por RLS (solo admins)
     const conflict = await hasConflict(payload.cabana_id, payload.fecha_desde, payload.fecha_hasta, id ? Number(id) : 0);
     if (conflict) return alertMsg(msg, "Conflicto: ya existe una reserva en esas fechas para esa cabaña.");
 
     let resp;
-    if (id) {
-      resp = await supabase.from('reservas')
-        .update({ ...payload, updated_at: new Date().toISOString() })
-        .eq('id', Number(id));
-    } else {
-      resp = await supabase.from('reservas')
-        .insert({ ...payload });
-    }
+    if (id) resp = await supabase.from('reservas').update(payload).eq('id', Number(id));
+    else resp = await supabase.from('reservas').insert(payload);
 
     if (resp.error) return alertMsg(msg, resp.error.message);
 
@@ -580,6 +602,8 @@
   });
 
   document.getElementById('btnCancelarReserva').addEventListener('click', async () => {
+    if (!canWrite()) return;
+
     const id = document.getElementById('reservaId').value;
     if (!id) return;
     if (!confirm("¿Cancelar esta reserva?")) return;
@@ -590,13 +614,11 @@
 
     if (resp.error) return alert(resp.error.message);
     modalReserva.hide();
-    await autoUpdateEstados();
     if (calendar) calendar.refetchEvents();
   });
 
   async function hasConflict(cabanaId, desde, hasta, excludeId = 0) {
-    // Traemos reservas que intersectan, excluyendo canceladas
-    // Intersección: fecha_desde < hasta AND fecha_hasta > desde
+    // Intersección por fecha (mantiene tu regla de rango [desde,hasta))
     let q = supabase.from('reservas')
       .select('id')
       .eq('cabana_id', cabanaId)
@@ -608,7 +630,7 @@
     if (excludeId) q = q.neq('id', excludeId);
 
     const { data, error } = await q;
-    if (error) return false; // si falla, no bloqueamos (pero normalmente no fallará)
+    if (error) return false;
     return (data && data.length > 0);
   }
 
@@ -628,24 +650,31 @@
         center: 'title',
         right: window.innerWidth < 768 ? 'listWeek,dayGridMonth' : 'dayGridMonth,timeGridWeek,listWeek'
       },
-      selectable: true,
+      selectable: canWrite(),
       selectMirror: true,
-      select: (info) => {
-        // Selección de rango (arrastra en desktop; en móvil suele ser tap + drag)
-        openReservaModal({
-          cabana_id: cabanaFilter.value ? Number(cabanaFilter.value) : undefined,
-          fecha_desde: info.startStr.slice(0,10),
-          fecha_hasta: info.endStr.slice(0,10),
-          estado: 'confirmada',
-          personas: 1
-        });
-      },
+
       dateClick: (info) => {
-        // Click en un día: crea 1 noche por defecto (desde ese día hasta el siguiente)
+        if (!canWrite()) return;
         openReservaModal({
           cabana_id: cabanaFilter.value ? Number(cabanaFilter.value) : undefined,
           fecha_desde: info.dateStr,
           fecha_hasta: addDaysISO(info.dateStr, 1),
+          hora_ingreso: '15:00',
+          hora_salida: '11:00',
+          estado: 'confirmada',
+          personas: 1
+        });
+      },
+
+      select: (info) => {
+        if (!canWrite()) return;
+        // FullCalendar entrega endStr exclusivo; perfecto para tu regla [desde,hasta)
+        openReservaModal({
+          cabana_id: cabanaFilter.value ? Number(cabanaFilter.value) : undefined,
+          fecha_desde: info.startStr.slice(0,10),
+          fecha_hasta: info.endStr.slice(0,10),
+          hora_ingreso: '15:00',
+          hora_salida: '11:00',
           estado: 'confirmada',
           personas: 1
         });
@@ -656,7 +685,7 @@
           const cabanaId = cabanaFilter.value ? Number(cabanaFilter.value) : null;
 
           let q = supabase.from('reservas')
-            .select('id,cabana_id,fecha_desde,fecha_hasta,estado,huesped_nombre,cabanas(nombre)')
+            .select('id,cabana_id,fecha_desde,fecha_hasta,hora_ingreso,hora_salida,estado,huesped_nombre,cabanas(nombre)')
             .neq('estado', 'cancelada')
             .lt('fecha_desde', fetchInfo.endStr.slice(0,10))
             .gt('fecha_hasta', fetchInfo.startStr.slice(0,10));
@@ -668,22 +697,30 @@
 
           const events = (data || []).map(r => {
             const c = colorByEstado(r.estado);
+            const hi = String(r.hora_ingreso || '15:00').slice(0,5);
+            const hs = String(r.hora_salida  || '11:00').slice(0,5);
+
             return {
-              title: `${r.cabanas?.nombre ?? 'Cabaña'} - ${r.huesped_nombre}`,
+              // muestra horas en el título
+              title: `${r.cabanas?.nombre ?? 'Cabaña'} - ${r.huesped_nombre} (${hi}→${hs})`,
               start: r.fecha_desde,
-              end: addDaysISO(r.fecha_hasta, 1), // solo visual (FullCalendar usa end exclusivo)
+              // IMPORTANTE: para que no "corte" el día de salida en vista mensual
+              // Tu BD queda igual (hasta = día de retiro), pero visualmente lo mostramos completo.
+              end: addDaysISO(r.fecha_hasta, 1),
               allDay: true,
               backgroundColor: c.bg,
               borderColor: c.border,
               textColor: c.text,
-              extendedProps: { reservaId: r.id, estado: r.estado }
+              extendedProps: { reservaId: r.id }
             };
           });
+
           success(events);
         } catch (e) {
           failure(e);
         }
       },
+
       eventClick: async (info) => {
         const id = info.event.extendedProps.reservaId;
         const { data, error } = await supabase.from('reservas')
