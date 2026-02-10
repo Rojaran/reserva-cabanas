@@ -232,7 +232,7 @@
 <script type="module">
   import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-  // ========= CONFIGURA ESTO =========
+ // ========= CONFIGURA ESTO =========
   const SUPABASE_URL = "https://ibetbsxasxxakjdlaocp.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImliZXRic3hhc3h4YWtqZGxhb2NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2NzIyMzYsImV4cCI6MjA4NjI0ODIzNn0.U4LyGRebUDWqXlEt8zEEde9UILXzWfFjzbghqPhBnQg";
   // =================================
@@ -296,13 +296,17 @@
       dateFormat: "Y-m-d",
       altInput: true,
       altFormat: "d/m/Y",
-      allowInput: true
+      altInputClass: "form-control",
+      allowInput: true,
+      disableMobile: true
     });
     fpHasta = window.flatpickr("#resHasta", {
       dateFormat: "Y-m-d",
       altInput: true,
       altFormat: "d/m/Y",
-      allowInput: true
+      altInputClass: "form-control",
+      allowInput: true,
+      disableMobile: true
     });
   }
   window.addEventListener('DOMContentLoaded', () => initDatePickers());
